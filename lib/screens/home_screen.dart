@@ -49,7 +49,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         title: const Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            BrandIcon.flutter(size: 28),
+            BrandIcon.app(size: 28),
             SizedBox(width: 10),
             Text('Flutter Find'),
           ],
