@@ -1,0 +1,97 @@
+name: Release APK
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - pubspec.yaml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Detect version bump
+        id: version
+        run: |
+          set -euo pipefail
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            CHANGED=true
+          elif ! git diff HEAD~1 HEAD -- pubspec.yaml | grep -qE '^[+-]version:'; then
+            echo "pubspec.yaml changed but version line did not — skipping release."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          else
+            CHANGED=true
+          fi
+
+          FULL=$(grep '^version:' pubspec.yaml | head -1 | sed 's/version:[[:space:]]*//')
+          VERSION_NAME="${FULL%%+*}"
+          BUILD_NUMBER="${FULL#*+}"
+
+          if [ "$VERSION_NAME" = "$FULL" ]; then
+            BUILD_NUMBER="0"
+          fi
+
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          echo "full=$FULL" >> "$GITHUB_OUTPUT"
+          echo "name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
+          echo "build=$BUILD_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "tag=v${VERSION_NAME}" >> "$GITHUB_OUTPUT"
+          echo "Release version: $FULL (tag v${VERSION_NAME})"
+
+      - name: Setup Java
+        if: steps.version.outputs.changed == 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Flutter
+        if: steps.version.outputs.changed == 'true'
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        if: steps.version.outputs.changed == 'true'
+        run: flutter pub get
+
+      - name: Build release APKs
+        if: steps.version.outputs.changed == 'true'
+        run: flutter build apk --release --split-per-abi
+
+      - name: Publish GitHub Release
+        if: steps.version.outputs.changed == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: flutter_find ${{ steps.version.outputs.full }}
+          body: |
+            ## flutter_find ${{ steps.version.outputs.name }} (build ${{ steps.version.outputs.build }})
+
+            Android release APKs built with `--split-per-abi`:
+
+            | ABI | File |
+            |-----|------|
+            | armeabi-v7a | `app-armeabi-v7a-release.apk` |
+            | arm64-v8a | `app-arm64-v8a-release.apk` |
+            | x86_64 | `app-x86_64-release.apk` |
+
+            Most phones use **arm64-v8a**.
+          files: |
+            build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk
+            build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+            build/app/outputs/flutter-apk/app-x86_64-release.apk
+          generate_release_notes: true
+          fail_on_unmatched_files: true
